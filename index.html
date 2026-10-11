@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart Classroom Energy Grid — VS Code</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { display: flex; height: 100vh; background-color: #1e1e1e; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif; }
+    /* VS Code Left Panel */
+    .editor-panel { width: 45%; border-right: 2px solid #333; display: flex; flex-direction: column; }
+    .editor-header { background: #252526; padding: 12px 16px; font-size: 13px; color: #ccc; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
+    textarea { flex: 1; background: #1e1e1e; color: #9cdcfe; font-family: 'Consolas', 'Courier New', monospace; font-size: 15px; padding: 18px; border: none; outline: none; resize: none; line-height: 1.5; }
+    /* Dashboard Right Panel */
+    .dashboard-panel { width: 55%; background: #111; padding: 25px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
+    
+    /* Room Appliances Layout */
+    .appliances-grid { width: 100%; max-width: 480px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    
+    .appliance-card { background: #1a1a1a; border: 2px solid #333; border-radius: 12px; padding: 20px; text-align: center; position: relative; }
+    .appliance-title { font-size: 14px; color: #888; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
+    
+    /* Light Icon */
+    .icon-box {
+      width: 80px; height: 80px; border-radius: 50%; background: #2a2a2a; margin: 0 auto 15px;
+      border: 3px solid #444; transition: all 0.4s ease; display: flex; align-items: center; justify-content: center;
+      font-size: 28px; color: #555;
+    }
+    .icon-box.active-light {
+      background: #ffe600; border-color: #fff; color: #111;
+      box-shadow: 0 0 40px rgba(255, 230, 0, 0.8), inset 0 0 15px rgba(255, 255, 255, 0.8);
+    }
+    /* AC Icon */
+    .icon-box.active-ac {
+      background: #00d2ff; border-color: #fff; color: #111;
+      box-shadow: 0 0 40px rgba(0, 210, 255, 0.8), inset 0 0 15px rgba(255, 255, 255, 0.8);
+    }
+    .timer-badge { display: inline-block; padding: 4px 10px; background: #2d2d2d; border-radius: 12px; font-size: 12px; color: #aaa; font-weight: bold; }
+    .timer-badge.active { background: #d97706; color: #fff; }
+    /* Telemetry Grid */
+    .metrics-grid { width: 100%; max-width: 480px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .metric-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 14px; text-align: center; }
+    .metric-label { font-size: 11px; color: #777; text-transform: uppercase; margin-bottom: 6px; }
+    .metric-value { font-size: 18px; font-weight: bold; color: #4ade80; }
+    .metric-value.warning { color: #f87171; }
+    /* Savings Log */
+    .log-panel { width: 100%; max-width: 480px; background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; height: 110px; overflow-y: auto; color: #a1a1aa; }
+    .log-entry { margin-bottom: 6px; }
+    .log-entry.success { color: #4ade80; }
+    .log-entry.alert { color: #facc15; }
+    .log-entry.ac-alert { color: #38bdf8; }
+  </style>
+</head>
+<body>
+  <!-- VS Code Mock Editor -->
+  <div class="editor-panel">
+    <div class="editor-header">
+      <span>📄 main.js — Smart Automation Controller</span>
+      <span style="color: #666;">JavaScript</span>
+    </div>
+    <textarea id="editor" placeholder="// COMMANDS:&#10;// Type 'IN CLASSROOM' -> Turns Lights ON for 10s&#10;// Type 'AC ON'       -> Turns AC ON for 10s"></textarea>
+  </div>
+  <!-- Dashboard -->
+  <div class="dashboard-panel">
+    
+    <!-- Appliances Control Grid -->
+    <div class="appliances-grid">
+      <!-- Light Fixture Card -->
+      <div class="appliance-card">
+        <div class="appliance-title">Lighting (100W)</div>
+        <div id="lightIcon" class="icon-box">💡</div>
+        <div id="lightTimer" class="timer-badge">STANDBY</div>
+      </div>
+      <!-- Air Conditioner Card -->
+      <div class="appliance-card">
+        <div class="appliance-title">Air Con (1500W)</div>
+        <div id="acIcon" class="icon-box">❄️</div>
+        <div id="acTimer" class="timer-badge">STANDBY</div>
+      </div>
+    </div>
+    <!-- Live Telemetry -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Total Power Saved</div>
+        <div id="powerSaved" class="metric-value">0.00 Wh</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Money Saved</div>
+        <div id="moneySaved" class="metric-value">$0.00</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Active Power Draw</div>
+        <div id="currentDraw" class="metric-value warning">0 W</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Grid Status</div>
+        <div id="gridStatus" class="metric-value">OPTIMAL</div>
+      </div>
+    </div>
+    <!-- Live Console Output -->
+    <div id="logPanel" class="log-panel">
+      <div class="log-entry">[Grid initialized] Awaiting smart commands...</div>
+    </div>
+  </div>
+  <script>
+    const editor = document.getElementById('editor');
+    
+    // UI Elements
+    const lightIcon = document.getElementById('lightIcon');
+    const lightTimer = document.getElementById('lightTimer');
+    const acIcon = document.getElementById('acIcon');
+    const acTimer = document.getElementById('acTimer');
+    
+    const powerSavedEl = document.getElementById('powerSaved');
+    const moneySavedEl = document.getElementById('moneySaved');
+    const currentDrawEl = document.getElementById('currentDraw');
+    const logPanel = document.getElementById('logPanel');
+    // Power Parameters
+    const LIGHT_WATTAGE = 100;   // 100W Light
+    const AC_WATTAGE = 1500;     // 1500W Air Conditioner
+    const COST_PER_KWH = 0.15;   // $0.15 per kWh average electricity rate
+    const DURATION = 10;         // 10 seconds auto-off
+    // State Variables
+    let lightInterval = null;
+    let acInterval = null;
+    let lightCountdown = 0;
+    let acCountdown = 0;
+    
+    let isLightActive = false;
+    let isAcActive = false;
+    
+    let totalPowerSavedWh = 0;
+    editor.addEventListener('input', () => {
+      const text = editor.value.toUpperCase();
+      // Trigger Light
+      if (text.includes('IN CLASSROOM') && !isLightActive) {
+        activateLight();
+      }
+      // Trigger AC
+      if (text.includes('AC ON') && !isAcActive) {
+        activateAC();
+      }
+    });
+    function updatePowerDraw() {
+      let activeDraw = 0;
+      if (isLightActive) activeDraw += LIGHT_WATTAGE;
+      if (isAcActive) activeDraw += AC_WATTAGE;
+      currentDrawEl.innerText = `${activeDraw} W`;
+    }
+    function activateLight() {
+      isLightActive = true;
+      lightIcon.classList.add('active-light');
+      lightTimer.classList.add('active');
+      lightCountdown = DURATION;
+      lightTimer.innerText = `AUTO-OFF: ${lightCountdown}s`;
+      updatePowerDraw();
+      addLog(`[LIGHTS ACTIVATED] 100W fixture ON. 10s auto-cutoff engaged.`, 'alert');
+      lightInterval = setInterval(() => {
+        lightCountdown--;
+        if (lightCountdown > 0) {
+          lightTimer.innerText = `AUTO-OFF: ${lightCountdown}s`;
+        } else {
+          clearInterval(lightInterval);
+          deactivateLight();
+        }
+      }, 1000);
+    }
+    function deactivateLight() {
+      isLightActive = false;
+      lightIcon.classList.remove('active-light');
+      lightTimer.classList.remove('active');
+      lightTimer.innerText = 'STANDBY';
+      
+      updatePowerDraw();
+      calculateSavings(LIGHT_WATTAGE, 'Lighting');
+    }
+    function activateAC() {
+      isAcActive = true;
+      acIcon.classList.add('active-ac');
+      acTimer.classList.add('active');
+      acCountdown = DURATION;
+      acTimer.innerText = `AUTO-OFF: ${acCountdown}s`;
+      updatePowerDraw();
+      addLog(`[AC ACTIVATED] High-load 1500W AC unit ON. 10s timer engaged.`, 'ac-alert');
+      acInterval = setInterval(() => {
+        acCountdown--;
+        if (acCountdown > 0) {
+          acTimer.innerText = `AUTO-OFF: ${acCountdown}s`;
+        } else {
+          clearInterval(acInterval);
+          deactivateAC();
+        }
+      }, 1000);
+    }
+    function deactivateAC() {
+      isAcActive = false;
+      acIcon.classList.remove('active-ac');
+      acTimer.classList.remove('active');
+      acTimer.innerText = 'STANDBY';
+      updatePowerDraw();
+      calculateSavings(AC_WATTAGE, 'Air Conditioner');
+    }
+    function calculateSavings(wattage, applianceName) {
+      // Comparison: standard left-on device (8 hours = 28,800s) vs 10s smart auto-off
+      const secondsSaved = 28800 - DURATION;
+      const powerSavedWh = wattage * (secondsSaved / 3600);
+      
+      totalPowerSavedWh += powerSavedWh;
+      const totalMoneySaved = (totalPowerSavedWh / 1000) * COST_PER_KWH;
+      powerSavedWh > 1000 
+        ? powerSavedEl.innerText = `${(totalPowerSavedWh / 1000).toFixed(2)} kWh`
+        : powerSavedEl.innerText = `${totalPowerSavedWh.toFixed(1)} Wh`;
+      moneySavedEl.innerText = `$${totalMoneySaved.toFixed(2)}`;
+      addLog(`[AUTO-CUTOFF] ${applianceName} powered down. Prevented waste!`, 'success');
+    }
+    function addLog(msg, type = '') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.innerText = `> ${msg}`;
+      logPanel.appendChild(entry);
+      logPanel.scrollTop = logPanel.scrollHeight;
+    }
+  </script>
+</body>
+</html>
